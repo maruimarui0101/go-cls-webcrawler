@@ -4,22 +4,27 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 
 	"github.com/steelx/extractlinks"
 )
 
-var config = &tls.Config{
-	InsecureSkipVerify: true,
-}
+var (
+	config = &tls.Config{
+		InsecureSkipVerify: true,
+	}
 
-var transport = &http.Transport{
-	TLSClientConfig: config,
-}
+	transport = &http.Transport{
+		TLSClientConfig: config,
+	}
 
-var netClient = &http.Client{
-	Transport: transport,
-}
+	netClient = &http.Client{
+		Transport: transport,
+	}
+
+	queue = make(chan string)
+)
 
 func main() {
 
@@ -30,10 +35,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	baseURL := arguments[0]
-	fmt.Println("baseURL", baseURL)
+	go func() {
+		queue <- arguments[0]
+	}()
 
-	crawlURL(baseURL)
+	for href := range queue {
+		crawlURL(href)
+	}
 }
 
 // creation of a reusable client, main problem is that there will be issues with normal http client accessing https sites
@@ -47,8 +55,32 @@ func crawlURL(href string) {
 	checkErr(err)
 
 	for _, link := range links {
-		crawlURL(link.Href)
+		absoluteURL := toFixedURL(link.Href, href)
+		go func() {
+			queue <- absoluteURL
+		}()
+
 	}
+}
+
+func toFixedURL(href, baseURL string) string {
+	uri, err := url.Parse(href)
+	if err != nil {
+		return ""
+	}
+
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+
+	toFixedURI := base.ResolveReference(uri)
+	// host from base
+	// path from uri
+	// has its own host
+	// base.Host + uri.Path
+
+	return toFixedURI.String()
 }
 
 func checkErr(err error) {
